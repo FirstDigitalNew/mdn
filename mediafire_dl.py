@@ -11,29 +11,34 @@ import tempfile
 import requests
 import six
 import tqdm
+from cfscrape import create_scraper
+from re import findall
 
 CHUNK_SIZE = 512 * 1024  # 512KB
 
-def extractDownloadLink(contents):
-    for line in contents.splitlines():
-        m = re.search(r'href="((http|https)://download[^"]+)', line)
-        if m:
-            return m.groups()[0]
+def extractDownloadLink(url):
+    if direct_link := findall(r'https?:\/\/download\d+\.mediafire\.com\/\S+\/\S+\/\S+', url):
+        return direct_link[0]
+    req = create_scraper().request
+    try:
+        url = req('get', url).url
+        page = req('get', url).text
+    except Exception as e:
+        return f"ERROR: {e}"
+    if not (direct_link := findall(r"\'(https?:\/\/download\d+\.mediafire\.com\/\S+\/\S+\/\S+)\'", page)):
+        return "ERROR: No links found in this page"
+    return direct_link[0]
 
 def download(url, output, quiet):
     url_origin = url
     sess = requests.session()
 
     while True:
-        res = sess.get(url, stream=True)
-        if 'Content-Disposition' in res.headers:
-            # This is the file
-            break
-
         # Need to redirect with confiramtion
-        url = extractDownloadLink(res.text)
+        url = extractDownloadLink(url)
+        res = sess.get(url, stream=True)
 
-        if url is None:
+        if "http" not in url:
             print('Permission denied: %s' % url_origin, file=sys.stderr)
             print(
                 "Maybe you need to change permission over "
